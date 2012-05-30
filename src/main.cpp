@@ -2,159 +2,133 @@
 #include <highgui.h>
 
 #include <iostream>
-
-#include <boost/program_options.hpp>
+#include <sstream>
 
 #include "ImageSequence.h"
+#include "CommandLine.h"
+#include "usegui.h"
+
+#ifdef USE_GUI
+#include "gui.h"
+#endif
 
 using namespace std;
 using namespace cv;
-using namespace boost::program_options;
-
-struct Params {
-	//映像入力ソースの名前
-	//camera,video,imagesのうちの１つ
-	string source_name;
-
-	//入力ソースへのオプション
-	//camera：デバイス番号を指定（デフォルトで0になっている）
-	//video：動画ファイル名を指定
-	//images:1行１画像ファイルがかかれたファイル名
-	string filename;
-	
-	//int n_feature; //その他のオプション
-	//int sx,sy,ex,ey;//トラッキングの開始位置
-};
-
-int commandLine( int argc, char **argv, Params &params ){
-
-	options_description option_input_source("input source options");
-	options_description option_other("other options");
-	//options_description option_tracker("tracker's options");
-	//options_description option_position("start position options for tracker(must specify)");
-	
-	option_input_source.add_options()
-		("source,s", value<string>(&params.source_name)->default_value("camera"), 
-		 "input source. source=<camera,video,images>.\n when select \"images\" or \"video\", must specify \"filename\" option. ")
-		("filename,f", value<string>(&params.filename), 
-		 "set file name when select source option as \"video\" or \"images\".")
-		;
-
-	option_other.add_options()
-		("help,h","show help")
-		;
-
-	/*
-	option_tracker.add_options()
-		("nfeature,n", value<int>(&params.n_feature)->default_value(100), "extract features num")
-		;
-		*/
-	/*
-	option_position.add_options()
-		("sx", value<int>(&params.sx), "start x of rect")
-		("sy", value<int>(&params.sy), "start y of rect")
-		("ex", value<int>(&params.ex), "end x of rect")
-		("ey", value<int>(&params.ey), "end y of rect")
-		;
-		*/
-
-	option_input_source
-		.add(option_other)
-		//.add(option_tracker)
-		//.add(option_position)
-		;
-
-	variables_map values;
-
-	try {
-		store(parse_command_line(argc, argv, option_input_source), values);
-
-		notify(values);
-
-		if( values.count("help") 
-			//	|| !values.count("sx") || !values.count("sy") 
-			//	|| !values.count("ex") || !values.count("ey")
-				){
-
-			cerr<< option_input_source <<endl;
-			cerr<< "when select source as \"video\" or \"images\", "
-				<< "you must specify \"filename\" option."
-				<< endl
-				<< "\"video\" :  specify video file name."
-				<< endl
-				<< "\"images\" : specify directory name(include image file )"
-				<< " or file name(1 line 1 file name)."
-				<<endl;
-			return 0;
-		}
-		if( params.source_name == "images" 
-			   	&& params.filename == "" ){
-			cerr<< "empty \"filename\" options." 
-				<<endl
-				<< "must specify \"filename\" option" 
-				<<endl;
-			return 0;
-		}
-		if( params.source_name == "video"
-				&& params.filename == "" ){
-			cerr<< "empty \"filename\" option." <<endl
-				<< "must specify vidname when select source as \"video\"." <<endl;
-			return 0;
-		}
-		if( params.source_name == "camera"
-				&& params.filename == "" ){
-			params.filename = "0";
-		}
-	}
-	catch( exception &e ){
-		cerr<< "unknown option exception : " << e.what() <<endl;
-	}
-	
-	return 1;
-}
 
 int main(int argc, char **argv){
 
-	Params params;
+	ys::Params params;
 	if( !commandLine( argc, argv, params )){
 		return 1;
 	}
 
-	ys::ImageSequence *source;
-	if( params.source_name == "video" ){
-		source = new ys::VideoCapture();
-	}
-	else if( params.source_name == "camera" ){
-		source = new ys::CameraCapture();
-	}
-	else if( params.source_name == "list" ){
-		source = new ys::ImageList();
-	}
-	else {
-		cerr<< "illegal error: invalid source > " << params.source_name <<endl;
-		cerr<< "exit program" <<endl;
-		return 1;
-	}
-	
+	ys::ImageSequence *source = ys::getImageSequence( params.source_name );
 
+	//GUIの設定
+#ifdef USE_GUI 
 	string main_window("main window");
 	namedWindow( main_window );
+	ys::MouseParam mparam;
+	setMouseCallback( main_window, &ys::mouseCallback, &mparam );
+#endif
 
-	Mat frame;
+	//画像の保存用
+#ifdef USE_GUI
+	bool now_saving_image = false;
+#else
+	bool now_saving_image = true;
+#endif
+	unsigned int save_image_count = 0;
+	string save_image_ext = ".jpg";
+
+	//矩形表示
+	Scalar red(0,0,255);
+#ifdef USE_GUI
+	Rect rect;
+	bool now_drawing = false;
+#else
+	Rect rect( params.sx, params.sy, params.ex - params.sx, params.ey - params.sy );
+	bool now_drawing = true;
+#endif
+
+	Mat frame;//表示用
+	Mat image;//画像処理用
+
+	//初期画像の取り込み
 	source->open(params.filename);
-	while( source->next() ){
-		
-		source->get(frame);
+	if( !source->next()){
+		cout<< "failed to read video source" <<endl;
+		return 1;
+	}
+	source->get(frame);
+	frame.copyTo(image);
 
+	while( 1 ){
+
+#ifdef USE_GUI
 		imshow(main_window, frame);
 		int key = waitKey(10);
 		if( (char)key == 'q' ){
 			break;
 		}
+		else if( (char)key == 's' ){
+			now_saving_image = !now_saving_image;
+			if( now_saving_image )
+				cout<< endl
+					<< "start save image" <<endl;
+			else
+				cout<< endl
+					<< "stop save image" <<endl;
+		}
+		else if( (char)key == 'd' ){
+			now_drawing = false;
+			cout<< "stop draw rect" <<endl;
+		}
+#endif
 
+		if( !source->next()) break;
+		source->get(frame);
+
+		//表示用画像への描画
+		if( now_drawing ){
+			rectangle( frame, rect.tl(), rect.br(), red );
+		}
+
+		//矩形選択
+#ifdef USE_GUI
+		if( mparam.state == ys::MouseParam::STATE_DOWN ){
+			now_drawing = false;
+			initMouseParam2Rect( mparam, rect );
+		}
+		else if( mparam.state == ys::MouseParam::STATE_DRAG ){
+			updateMouseParam2Rect( mparam, rect );
+			rectangle( frame, rect.tl(), rect.br(), red);
+		}
+		else if( mparam.state == ys::MouseParam::STATE_UP ){
+			updateMouseParam2Rect( mparam, rect );
+			rectangle( frame, rect.tl(), rect.br(), red);
+
+			now_drawing = true;
+			cout<< "draw rect" <<endl;
+		}
+#endif
+
+		//表示用画像の保存
+		if( now_saving_image ){
+			stringstream sstr;
+			sstr<< setw(6) << setfill('0') << save_image_count << save_image_ext<<flush;
+			if( !imwrite( sstr.str(), frame )){
+				cerr<< "failed to save image>" << sstr.str() <<endl;
+			}
+			else {
+				save_image_count++;
+				cout<< "\rnow saving>" << sstr.str() <<flush;
+			}
+		}
 	}
 
-	cout<< "finish program" <<endl;
+	cout<< endl
+		<< "finish program" <<endl;
 
 	delete source;
 	return 0;
