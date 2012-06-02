@@ -152,7 +152,7 @@ int ys::ImageList::_readFile2List( const string &filename ){
 	}
 }
 
-ys::ImageSequence* ys::getImageSequence( std::string &type ){
+ys::AbstractCapture* ys::getCapture( std::string &type ){
 	if( type == "video" ){
 		cout<< "open video" <<endl;
 		return new ys::VideoCapture();
@@ -171,3 +171,5 @@ ys::ImageSequence* ys::getImageSequence( std::string &type ){
 		return 0;
 	}
 }
+
+

@@ -5,9 +5,9 @@
 
 namespace ys {
 
-	class ImageSequence {
+	class AbstractCapture {
 		public:
-			virtual ~ImageSequence(){}
+			virtual ~AbstractCapture(){}
 
 			virtual bool get( cv::Mat &image, int channel=0 ) = 0;
 			virtual bool next() = 0;
@@ -22,7 +22,7 @@ namespace ys {
 
 	};
 
-	class VideoCapture : public ImageSequence {
+	class VideoCapture : public AbstractCapture {
 		public:
 			VideoCapture()
 				:_counter(0)
@@ -49,7 +49,7 @@ namespace ys {
 			virtual bool open( const std::string &filename );
 	};
 
-	class ImageList : public ImageSequence {
+	class ImageList : public AbstractCapture {
 		public:
 
 
@@ -80,5 +80,53 @@ namespace ys {
 	};
 
 
-	ImageSequence* getImageSequence(std::string &type);
+	AbstractCapture* getCapture(std::string &type);
+
+	class Capture {
+		public:
+			Capture( std::string &type );
+			Capture( int type );
+			~Capture();
+			virtual bool get( cv::Mat &image, int channel = 0);
+			virtual bool next();
+			virtual int currentNum();
+
+			virtual bool open(const std::string &filename);
+
+			virtual bool isOpen();
+			virtual void release();
+
+			virtual std::string getSourceName();
+			
+		private:
+			AbstractCapture *_cap;
+	};
+
+	class ImageProcessorInterface {
+		public:
+			virtual ~ImageProcessorInterface() = 0;
+			virtual void init( cv::Mat &image, cv::Rect &area ) = 0;
+			//処理内容を記述
+			virtual void processImage( cv::Mat &image, int count ) = 0;
+			//処理を終了する条件
+			virtual bool stopCondition();
+	};
+
+	class ImageSequence {
+		public:
+			ImageSequence();
+			void setSize( cv::Size &size );
+			void setInterval( int interval );
+			void setShowProgress( bool show );
+			void setImageProcessor( ImageProcessorInterface &processor );
+			void run();
+
+		private:
+			Capture _cap;
+			ImageProcessorInterface *_processor;
+			cv::Size _image_size;
+			int _interval;
+			bool _show_progress;
+			int _count;
+	};
 }

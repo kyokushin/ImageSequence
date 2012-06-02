@@ -22,7 +22,7 @@ int main(int argc, char **argv){
 		return 1;
 	}
 
-	ys::ImageSequence *source = ys::getImageSequence( params.source_name );
+	ys::AbstractCapture *source = ys::getCapture( params.source_name );
 
 	//GUIの設定
 #ifdef USE_GUI 
